@@ -1,0 +1,36 @@
+name: terraform-plan
+on:
+  pull_request:
+    branches: ["main"]
+    paths: ["infra/**"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    name: Terraform Plan
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform Init
+        working-directory: infra/environments/dev
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infra/environments/dev
+        run: terraform plan -input=false

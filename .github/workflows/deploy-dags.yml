@@ -1,0 +1,34 @@
+name: deploy-dags
+on:
+  push:
+    branches: ["main"]
+    paths: ["airflow/dags/**", "spark/jobs/**"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy DAGs and Spark Jobs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Set environment variables
+        run: |
+          echo "MWAA_DAG_BUCKET=${{ secrets.MWAA_DAG_BUCKET }}" >> $GITHUB_ENV
+          echo "ARTIFACT_BUCKET=${{ secrets.ARTIFACT_BUCKET }}" >> $GITHUB_ENV
+
+      - name: Sync DAGs to MWAA
+        run: aws s3 sync airflow/dags s3://$MWAA_DAG_BUCKET/dags/ --delete
+
+      - name: Sync Spark jobs to artifact bucket
+        run: aws s3 sync spark/jobs s3://$ARTIFACT_BUCKET/spark-jobs/ --delete
