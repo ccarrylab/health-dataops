@@ -3,7 +3,10 @@ variable "vpc_id"             { type = string }
 variable "private_subnet_ids" { type = list(string) }
 variable "kms_key_id"         { type = string }
 variable "logs_bucket"        { type = string }
-variable "use_serverless"     { type = bool; default = false }
+variable "use_serverless" {
+  type    = bool
+  default = false
+}
 
 locals {
   common_tags = {
@@ -13,18 +16,19 @@ locals {
   }
 }
 
-# ── EMR Cluster (standard) ────────────────────────────────────────────────────
-
 resource "aws_security_group" "emr_master" {
   count       = var.use_serverless ? 0 : 1
   name        = "${var.environment}-emr-master"
   description = "EMR master security group"
   vpc_id      = var.vpc_id
-  ingress {
-    from_port       = 0; to_port = 0; protocol = "-1"
-    security_groups = [aws_security_group.emr_slave[0].id]
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
-  egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
+
   tags = merge(local.common_tags, { Name = "${var.environment}-emr-master-sg" })
 }
 
@@ -33,12 +37,35 @@ resource "aws_security_group" "emr_slave" {
   name        = "${var.environment}-emr-slave"
   description = "EMR slave security group"
   vpc_id      = var.vpc_id
-  ingress {
-    from_port       = 0; to_port = 0; protocol = "-1"
-    security_groups = [aws_security_group.emr_master[0].id]
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
-  egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
+
   tags = merge(local.common_tags, { Name = "${var.environment}-emr-slave-sg" })
+}
+
+resource "aws_security_group_rule" "master_from_slave" {
+  count                    = var.use_serverless ? 0 : 1
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
+  security_group_id        = aws_security_group.emr_master[0].id
+  source_security_group_id = aws_security_group.emr_slave[0].id
+}
+
+resource "aws_security_group_rule" "slave_from_master" {
+  count                    = var.use_serverless ? 0 : 1
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 0
+  protocol                 = "-1"
+  security_group_id        = aws_security_group.emr_slave[0].id
+  source_security_group_id = aws_security_group.emr_master[0].id
 }
 
 resource "aws_iam_role" "emr_service" {
@@ -46,7 +73,11 @@ resource "aws_iam_role" "emr_service" {
   name  = "${var.environment}-emr-service-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{ Effect = "Allow"; Principal = { Service = "elasticmapreduce.amazonaws.com" }; Action = "sts:AssumeRole" }]
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "elasticmapreduce.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
   })
   tags = merge(local.common_tags, { Name = "${var.environment}-emr-service-role" })
 }
@@ -62,17 +93,24 @@ resource "aws_iam_role" "emr_instance" {
   name  = "${var.environment}-emr-instance-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{ Effect = "Allow"; Principal = { Service = "ec2.amazonaws.com" }; Action = "sts:AssumeRole" }]
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
   })
   tags = merge(local.common_tags, { Name = "${var.environment}-emr-instance-role" })
 }
 
 resource "aws_iam_role_policy_attachment" "emr_instance_s3" {
-  count = var.use_serverless ? 0 : 1; role = aws_iam_role.emr_instance[0].name
+  count      = var.use_serverless ? 0 : 1
+  role       = aws_iam_role.emr_instance[0].name
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
+
 resource "aws_iam_role_policy_attachment" "emr_instance_cw" {
-  count = var.use_serverless ? 0 : 1; role = aws_iam_role.emr_instance[0].name
+  count      = var.use_serverless ? 0 : 1
+  role       = aws_iam_role.emr_instance[0].name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
 }
 
@@ -88,7 +126,10 @@ resource "aws_emr_security_configuration" "main" {
   configuration = jsonencode({
     EncryptionConfiguration = {
       EncryptionAtRestConfiguration = {
-        S3EncryptionConfiguration = { EncryptionMode = "SSE-KMS"; KmsKeyArn = var.kms_key_id }
+        S3EncryptionConfiguration = {
+          EncryptionMode = "SSE-KMS"
+          KmsKeyArn      = var.kms_key_id
+        }
       }
       EnableHdfsEncryption = false
     }
@@ -108,12 +149,19 @@ resource "aws_emr_cluster" "main" {
     instance_profile                  = aws_iam_instance_profile.emr[0].name
   }
 
-  master_instance_group { instance_type = "m5.xlarge" }
-  core_instance_group   { instance_type = "m5.xlarge"; initial_count = 2; bid_price = "0.30" }
+  master_instance_group {
+    instance_type = "m5.xlarge"
+  }
 
-  service_role                      = aws_iam_role.emr_service[0].name
-  job_flow_role                     = aws_iam_role.emr_instance[0].name
-  security_configuration            = aws_emr_security_configuration.main[0].name
+  core_instance_group {
+    instance_type  = "m5.xlarge"
+    instance_count = 2
+    bid_price      = "0.30"
+  }
+
+  service_role           = aws_iam_role.emr_service[0].name
+  security_configuration = aws_emr_security_configuration.main[0].name
+
   termination_protection            = false
   keep_job_flow_alive_when_no_steps = true
   log_uri                           = "s3://${var.logs_bucket}/logs/emr/"
@@ -121,35 +169,47 @@ resource "aws_emr_cluster" "main" {
   tags = merge(local.common_tags, { Name = "${var.environment}-health-emr" })
 }
 
-# ── EMR Serverless ────────────────────────────────────────────────────────────
-
 resource "aws_security_group" "emr_serverless" {
   count       = var.use_serverless ? 1 : 0
   name        = "${var.environment}-emr-serverless-sg"
   description = "EMR Serverless security group"
   vpc_id      = var.vpc_id
-  egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = merge(local.common_tags, { Name = "${var.environment}-emr-serverless-sg" })
 }
 
 resource "aws_emrserverless_application" "main" {
   count         = var.use_serverless ? 1 : 0
   name          = "${var.environment}-health-emr-serverless"
-  release_label = "6.15.0"
+  release_label = "emr-6.15.0"
   type          = "spark"
 
   initial_capacity {
     initial_capacity_type = "Driver"
     initial_capacity_config {
       worker_count = 1
-      worker_configuration { cpu = "4vCPU"; memory = "16GB" }
+      worker_configuration {
+        cpu    = "4 vCPU"
+        memory = "16 GB"
+      }
     }
   }
+
   initial_capacity {
     initial_capacity_type = "Executor"
     initial_capacity_config {
       worker_count = 2
-      worker_configuration { cpu = "4vCPU"; memory = "16GB" }
+      worker_configuration {
+        cpu    = "4 vCPU"
+        memory = "16 GB"
+      }
     }
   }
 
@@ -166,13 +226,18 @@ resource "aws_iam_role" "emr_serverless_role" {
   name  = "${var.environment}-emr-serverless-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{ Effect = "Allow"; Principal = { Service = "emr-serverless.amazonaws.com" }; Action = "sts:AssumeRole" }]
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "emr-serverless.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
   })
   tags = merge(local.common_tags, { Name = "${var.environment}-emr-serverless-role" })
 }
 
 resource "aws_iam_role_policy_attachment" "emr_serverless_s3" {
-  count = var.use_serverless ? 1 : 0; role = aws_iam_role.emr_serverless_role[0].name
+  count      = var.use_serverless ? 1 : 0
+  role       = aws_iam_role.emr_serverless_role[0].name
   policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
 

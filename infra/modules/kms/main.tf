@@ -10,6 +10,9 @@ locals {
 }
 
 data "aws_caller_identity" "current" {}
+# FIX 1: partition comes from aws_partition, not aws_caller_identity
+data "aws_partition" "current" {}
+data "aws_region" "current" {}
 
 resource "aws_kms_key" "data" {
   description             = "KMS key for health data encryption (${var.environment})"
@@ -29,7 +32,7 @@ resource "aws_kms_key" "data" {
       {
         Sid       = "Allow CloudWatch Logs"
         Effect    = "Allow"
-        Principal = { Service = "logs.${data.aws_caller_identity.current.partition}.amazonaws.com" }
+        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
         Action    = ["kms:CreateGrant", "kms:DescribeKey"]
         Resource  = "*"
       }

@@ -1,21 +1,12 @@
 # Run this once before the main Terraform config to create remote state resources.
 # Usage: terraform apply -target=aws_s3_bucket.terraform_state -target=aws_dynamodb_table.terraform_locks
 
-variable "environment" {
-  type    = string
-  default = "dev"
-}
-
-variable "aws_region" {
-  type    = string
-  default = "us-east-1"
-}
 
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "terraform_state" {
   bucket = "health-dataops-terraform-state-${data.aws_caller_identity.current.account_id}"
-  
+
   tags = {
     Name        = "Terraform state"
     Environment = var.environment

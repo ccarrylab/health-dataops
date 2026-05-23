@@ -3,7 +3,10 @@ variable "vpc_id"             { type = string }
 variable "private_subnet_ids" { type = list(string) }
 variable "kms_key_id"         { type = string }
 variable "dag_bucket"         { type = string }
-variable "cost_optimized"     { type = bool; default = false }
+variable "cost_optimized" {
+  type    = bool
+  default = false
+}
 
 locals {
   common_tags = {
@@ -13,44 +16,49 @@ locals {
   }
   min_workers = var.cost_optimized ? 1 : 2
   max_workers = var.cost_optimized ? 2 : 4
-
-  log_groups = toset(["dag-processing", "scheduler", "task", "webserver", "worker"])
-}
-
-resource "aws_cloudwatch_log_group" "mwaa" {
-  for_each          = local.log_groups
-  name              = "/aws-mwaa/${var.environment}-health-mwaa-${each.key}"
-  retention_in_days = 30
-  tags              = merge(local.common_tags, { Name = "${var.environment}-mwaa-${each.key}" })
 }
 
 resource "aws_iam_role" "mwaa" {
   name = "${var.environment}-mwaa-execution-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{ Effect = "Allow"; Principal = { Service = "airflow.amazonaws.com" }; Action = "sts:AssumeRole" }]
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "airflow-env.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
   })
   tags = merge(local.common_tags, { Name = "${var.environment}-mwaa-execution-role" })
 }
 
-resource "aws_iam_role_policy_attachment" "mwaa_basic" {
-  role = aws_iam_role.mwaa.name; policy_arn = "arn:aws:iam::aws:policy/AmazonMWAAFullAccess"
-}
+
 resource "aws_iam_role_policy_attachment" "mwaa_s3" {
-  role = aws_iam_role.mwaa.name; policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+  role       = aws_iam_role.mwaa.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
 }
+
 resource "aws_iam_role_policy_attachment" "mwaa_cloudwatch" {
-  role = aws_iam_role.mwaa.name; policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+  role       = aws_iam_role.mwaa.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
 }
+
 resource "aws_iam_role_policy_attachment" "mwaa_ec2" {
-  role = aws_iam_role.mwaa.name; policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+  role       = aws_iam_role.mwaa.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
 }
 
 resource "aws_security_group" "mwaa" {
   name        = "${var.environment}-mwaa-sg"
   description = "MWAA security group"
   vpc_id      = var.vpc_id
-  egress { from_port = 0; to_port = 0; protocol = "-1"; cidr_blocks = ["0.0.0.0/0"] }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   tags = merge(local.common_tags, { Name = "${var.environment}-mwaa-sg" })
 }
 
@@ -58,6 +66,7 @@ resource "aws_mwaa_environment" "main" {
   name               = "${var.environment}-health-mwaa"
   execution_role_arn = aws_iam_role.mwaa.arn
   source_bucket_arn  = "arn:aws:s3:::${var.dag_bucket}"
+  dag_s3_path        = "dags/"
   min_workers        = local.min_workers
   max_workers        = local.max_workers
 
@@ -67,11 +76,26 @@ resource "aws_mwaa_environment" "main" {
   }
 
   logging_configuration {
-    dag_processing_logs { enabled = true; log_level = "INFO"; cloud_watch_log_group_arn = aws_cloudwatch_log_group.mwaa["dag-processing"].arn }
-    scheduler_logs      { enabled = true; log_level = "INFO"; cloud_watch_log_group_arn = aws_cloudwatch_log_group.mwaa["scheduler"].arn }
-    task_logs           { enabled = true; log_level = "INFO"; cloud_watch_log_group_arn = aws_cloudwatch_log_group.mwaa["task"].arn }
-    webserver_logs      { enabled = true; log_level = "INFO"; cloud_watch_log_group_arn = aws_cloudwatch_log_group.mwaa["webserver"].arn }
-    worker_logs         { enabled = true; log_level = "INFO"; cloud_watch_log_group_arn = aws_cloudwatch_log_group.mwaa["worker"].arn }
+    dag_processing_logs {
+      enabled   = true
+      log_level = "INFO"
+    }
+    scheduler_logs {
+      enabled   = true
+      log_level = "INFO"
+    }
+    task_logs {
+      enabled   = true
+      log_level = "INFO"
+    }
+    webserver_logs {
+      enabled   = true
+      log_level = "INFO"
+    }
+    worker_logs {
+      enabled   = true
+      log_level = "INFO"
+    }
   }
 
   tags = merge(local.common_tags, { Name = "${var.environment}-health-mwaa" })

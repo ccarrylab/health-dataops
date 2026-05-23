@@ -1,5 +1,28 @@
+variable "environment" {
+  type    = string
+  default = "dev"
+}
+
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
+}
+
+variable "github_org" {
+  type    = string
+  default = "ccarrylab"
+}
+
+variable "github_repo" {
+  type    = string
+  default = "health-dataops"
+}
+
 variable "key_admin_arns" {
-  type        = list(string)
-  description = "ARNs of KMS key administrators"
-  default     = ["arn:aws:iam::089719647189:user/awesomeone"]
+  type = list(string)
+}
+
+variable "cost_optimized" {
+  type    = bool
+  default = true
 }
