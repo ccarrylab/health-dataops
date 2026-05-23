@@ -1,4 +1,2 @@
-apache-airflow-providers-amazon>=7.0.0
-apache-airflow-providers-apache-spark>=2.0.0
-apache-airflow-providers-apache-emr>=5.0.0
-pandas>=1.5.0
+apache-airflow==2.9.3
+apache-airflow-providers-amazon==8.24.0

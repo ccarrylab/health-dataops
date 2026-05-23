@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  pull-requests: write
 
 jobs:
   plan:
@@ -31,6 +32,37 @@ jobs:
         working-directory: infra/environments/dev
         run: terraform init
 
-      - name: Terraform Plan
+      - name: Terraform Format Check
         working-directory: infra/environments/dev
-        run: terraform plan -input=false
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        working-directory: infra/environments/dev
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: infra/environments/dev
+        run: |
+          terraform plan -input=false \
+            -var="key_admin_arns=[\"${{ secrets.KEY_ADMIN_ARN }}\"]" \
+            -out=tfplan 2>&1 | tee plan_output.txt
+        continue-on-error: true
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/environments/dev/plan_output.txt', 'utf8');
+            const truncated = plan.length > 60000 ? plan.substring(0, 60000) + '\n... truncated' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Terraform Plan\n\`\`\`hcl\n${truncated}\n\`\`\``
+            });
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

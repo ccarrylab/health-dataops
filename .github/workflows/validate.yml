@@ -1,0 +1,37 @@
+name: validate
+on:
+  pull_request:
+    branches: ["main"]
+    paths: ["airflow/**", "spark/**"]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate DAGs and Spark Jobs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install apache-airflow==2.9.3 \
+                      apache-airflow-providers-amazon==8.24.0 \
+                      pyspark==3.5.0 \
+                      pytest
+
+      - name: Validate DAG syntax
+        run: |
+          python -c "
+          import ast, sys, glob
+          for f in glob.glob('airflow/dags/*.py'):
+              ast.parse(open(f).read())
+              print(f'OK: {f}')
+          "
+
+      - name: Run Spark unit tests
+        run: pytest spark/tests/ -v
